@@ -1,0 +1,82 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.0
+    container_name: evtx-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.http.ssl.enabled: "false"
+      xpack.security.transport.ssl.enabled: "false"
+      ES_JAVA_OPTS: -Xms2g -Xmx2g
+      # Performance optimizations
+      bootstrap.memory_lock: "true"
+      indices.memory.index_buffer_size: "40%"
+      # Use the correct recovery setting instead of deprecated store throttle
+      indices.recovery.max_bytes_per_sec: "100mb"
+    ports:
+      - "9200:9200"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.14.0
+    container_name: evtx-kibana
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      XPACK_SECURITY_ENABLED: "false"
+      ELASTICSEARCH_SSL_VERIFICATIONMODE: none
+      SERVER_HOST: 0.0.0.0
+      # Performance optimizations
+      NODE_OPTIONS: "--max-old-space-size=2048"
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  ingestor:
+    build:
+      context: .
+    container_name: evtx-ingestor
+    environment:
+      ES_URL: http://elasticsearch:9200
+      DATA_ROOT: /data
+      BULK_SIZE: "500"
+      MAX_WORKERS: "4"
+    volumes:
+      - ./data:/data:ro
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    # Run once on startup to clear old indices and ingest the current ./data folder
+    command: ["python", "/app/ingest.py"]
+
+  kibana-setup:
+    image: curlimages/curl:latest
+    container_name: evtx-kibana-setup
+    volumes:
+      - ./saved_objects:/saved_objects:ro
+      - ./import_saved_objects.sh:/import_saved_objects.sh:ro
+    depends_on:
+      kibana:
+        condition: service_healthy
+    command: ["/bin/sh", "/import_saved_objects.sh"]
+    restart: "no"
+
+networks:
+  default:
+    name: evtx-elk-net
