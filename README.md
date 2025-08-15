@@ -2,6 +2,8 @@
 
 This repository provides a minimal ELK stack with refreshed ingestor everytime you start the stack. The ingestor converts EVTX files, parses the lines and indexes them into Elasticsearch.
 
+![Example Photo](example.png)
+
 ## Setup Flow >
 
 1. When you start with `docker compose up`, Elasticsearch and Kibana start.
